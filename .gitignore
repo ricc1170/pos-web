@@ -1,0 +1,12 @@
+# Credenziali del database: ognuno copia config.example.php in config.php
+config.php
+
+# Editor / sistema
+.vscode/
+*.log
+Thumbs.db
+desktop.ini
+
+# Backup ed export del database (possono contenere dati reali)
+*.bak
+backup/

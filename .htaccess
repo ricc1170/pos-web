@@ -1,0 +1,2 @@
+# Non mostrare dal browser la cartella .git (cronologia del codice)
+RedirectMatch 404 /\.git
