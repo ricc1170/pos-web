@@ -2,7 +2,7 @@
 // ============================================================
 //  fattura.php  -  Emissione fattura per un conto (cassa / admin)
 //  fattura.php?conto=N         scelta cliente (ricerca o nuovo) + pagamento -> Emetti
-//  fattura.php?doc=N           fattura emessa: scarica XML, ristampa copia di cortesia
+//  fattura.php?doc=N           fattura emessa: scarica XML
 // ============================================================
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/documenti.php';
@@ -28,22 +28,13 @@ $errore = '';
 $form   = null;   // dati del nuovo cliente da ripresentare dopo un errore
 
 // ------------------------------------------------------------
-//  Fattura già emessa: riepilogo, XML, ristampa
+//  Fattura già emessa: riepilogo, XML
 // ------------------------------------------------------------
 if (isset($_GET['doc'])) {
     $doc = q('SELECT d.*, f.nome AS pagamento FROM documenti d LEFT JOIN forme_pagamento f ON f.id = d.pagamento_id
               WHERE d.id = ? AND d.tipo = "fattura"', [(int)$_GET['doc']])->fetch();
     if (!$doc) { header('Location: documenti.php'); exit; }
     $cli = q('SELECT * FROM clienti WHERE id = ?', [$doc['cliente_id']])->fetch();
-
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['azione'] ?? '') === 'ristampa') {
-        controlla_csrf();
-        $c = dati_conto((int)$doc['conto_id']);
-        [$ok, $testo] = stampa_su_cassa('Copia fattura', fn($st) => foglio_cortesia_fattura($st, $c, $doc, $cli));
-        $_SESSION[$ok ? 'msg' : 'err'] = $testo;
-        header("Location: fattura.php?doc={$doc['id']}");
-        exit;
-    }
 } else {
     // ------------------------------------------------------------
     //  Conto da fatturare
@@ -123,10 +114,8 @@ if (isset($_GET['doc'])) {
                     if (!($e instanceof RuntimeException) || $e instanceof PDOException) error_log('fattura.php: ' . $e->getMessage());
                 }
                 if (!$errore) {
-                    $doc = q('SELECT * FROM documenti WHERE id = ?', [$doc_id])->fetch();
-                    [$ok, $testo] = stampa_su_cassa('Copia fattura', fn($st) => foglio_cortesia_fattura($st, $c, $doc, $cli));
                     $_SESSION['ritorno'] = link_comanda($c);
-                    $_SESSION[$ok ? 'msg' : 'err'] = "Fattura $numero/$anno emessa, conto chiuso. " . $testo;
+                    $_SESSION['msg'] = "Fattura $numero/$anno emessa, conto chiuso.";
                     header("Location: fattura.php?doc=$doc_id");
                     exit;
                 }
@@ -204,10 +193,6 @@ $euro = fn($n) => $valuta . ' ' . number_format((float)$n, 2, ',', '.');
           (o passalo al commercialista): è quello il documento valido.</div>
         <div class="scheda-piede">
           <a class="btn verde" href="fattura_xml.php?id=<?= $doc['id'] ?>"><span class="ico">⬇</span>Scarica XML</a>
-          <form method="post">
-            <input type="hidden" name="csrf" value="<?= h($_SESSION['csrf']) ?>">
-            <button type="submit" name="azione" value="ristampa" class="btn" style="width:100%"><span class="ico">🖨</span>Ristampa copia</button>
-          </form>
         </div>
       </div>
     </div>

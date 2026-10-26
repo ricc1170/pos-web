@@ -37,7 +37,6 @@ async function api(azione, dati = {}) {
     const json = await res.json();
     if (res.status === 401) { location.href = 'index.php'; return { errore: 'Sessione scaduta' }; }
     if (json.errore) avviso(json.errore, true);
-    else if (json.stampa && json.stampa.testo) avviso(json.stampa.testo, !json.stampa.ok);
     if ('righe' in json) {
       stato = json;
       disegna();
@@ -49,7 +48,7 @@ async function api(azione, dati = {}) {
   }
 }
 
-// Messaggio in basso; i problemi (es. stampa non riuscita) in rosso e più a lungo
+// Messaggio in basso; i problemi (es. errori del server) in rosso e più a lungo
 function avviso(testo, problema = false) {
   const el = $('#avviso');
   el.textContent = testo;
@@ -327,7 +326,8 @@ const azioni = {
   },
   invia: () => {
     if (!stato.righe.some(r => r.invio === 0)) { avviso('Niente da inviare'); return; }
-    api('invia');   // il server risponde con l'esito della stampa
+    // Le comande le stampa il programma della cassa: qui si segnano solo come inviate
+    api('invia').then(j => { if (!j.errore) avviso('Comanda inviata'); });
   },
   parcheggio: () => {
     if (!stato.righe.length) { avviso('Aggiungi almeno un prodotto'); return; }
@@ -338,7 +338,7 @@ const azioni = {
 document.querySelectorAll('[data-az]').forEach(b =>
   b.addEventListener('click', () => azioni[b.dataset.az]()));
 
-// ---------- Documenti: proforma, scontrino, fattura ----------
+// ---------- Documenti: fattura (proforma e scontrino si fanno dal programma della cassa) ----------
 
 // Righe non ancora inviate in cucina: prima di chiudere il conto le mando (lo chiedo)
 async function inviaPrimaDiChiudere() {
@@ -346,58 +346,11 @@ async function inviaPrimaDiChiudere() {
   if (n && confirm(n + ' righe non ancora inviate in cucina. Inviarle adesso?')) await api('invia');
 }
 
-// Dopo la chiusura del conto: tavolo -> sala; banco -> comanda vuota; comanda richiamata -> banco
-function dopoConto() {
-  if (POS.tavolo) location.href = $('#btnSala').href;
-  else if (alBanco) { $('#scontrino').hidden = true; api('stato'); }
-  else location.href = 'comanda.php?bar=1';
-}
-
-azioni.proforma = () => {
-  if (!stato.righe.length) { avviso('Il conto è vuoto', true); return; }
-  api('proforma');
-};
-
 azioni.fattura = async () => {
   if (!stato.righe.length) { avviso('Il conto è vuoto', true); return; }
   await inviaPrimaDiChiudere();
   location.href = 'fattura.php?conto=' + stato.conto.id;
 };
-
-azioni.scontrino = async () => {
-  if (!stato.righe.length) { avviso('Il conto è vuoto', true); return; }
-  await inviaPrimaDiChiudere();
-  $('#scontrinoTotale').textContent = euro(stato.conto.totale);
-  $('#sceltaPagamento').hidden = false;
-  $('#scontrinoStato').hidden = true;
-  $('#scontrinoChiudi').disabled = false;
-  $('#scontrino').hidden = false;
-};
-
-// Scelto il pagamento: parte lo scontrino e aspetto la risposta della cassa (al massimo 2 minuti)
-document.querySelectorAll('[data-pagamento]').forEach(b => b.addEventListener('click', async () => {
-  const box = $('#scontrinoStato');
-  $('#sceltaPagamento').hidden = true;
-  box.hidden = false;
-  box.className = 'scontrino-stato';
-  box.textContent = 'Invio dello scontrino alla cassa…';
-  $('#scontrinoChiudi').disabled = true;
-
-  let j = await api('scontrino', { pagamento: +b.dataset.pagamento });
-  const fine = Date.now() + 130000;
-  while (j.documento && j.documento.stato === 'attesa' && Date.now() < fine) {
-    box.textContent = j.documento.testo;
-    await new Promise(r => setTimeout(r, 1500));
-    j = await api('documento', { id: j.documento.id });
-  }
-  $('#scontrinoChiudi').disabled = false;
-  if (!j.documento) { $('#scontrino').hidden = true; return; }   // errore già mostrato in basso
-  box.textContent = j.documento.testo;
-  box.classList.add(j.documento.stato === 'emesso' ? 'ok' : 'errore');
-  if (j.documento.stato === 'emesso') { avviso(j.documento.testo); setTimeout(dopoConto, 1500); }
-}));
-
-$('#scontrinoChiudi').addEventListener('click', () => $('#scontrino').hidden = true);
 
 // ---------- Finestra Varianti ----------
 // scelte: id variante -> '+' o '-' (assente = nessuna modifica)
@@ -475,17 +428,17 @@ if (POS.bar) {
 
   $('#chiudiParcheggio').addEventListener('click', () => $('#parcheggio').hidden = true);
 
-  // "Parcheggia e stampa" o "Parcheggia senza stampare": lo dice il pulsante premuto
+  // "Parcheggia e invia" o "Parcheggia senza inviare": lo dice il pulsante premuto
   $('#formParcheggio').addEventListener('submit', async e => {
     e.preventDefault();
-    const stampa = !e.submitter || e.submitter.value === '1';
+    const invia = !e.submitter || e.submitter.value === '1';
     const j = await api('parcheggia', {
       orario: $('#orario').value,
       nome:   $('#nome').value,
       note:   $('#noteConto').value,
-      invia:  stampa
+      invia
     });
-    if (!j.errore) dopoChiusura(stampa ? 'Comanda parcheggiata' : 'Comanda parcheggiata senza stampare', j.stampa);
+    if (!j.errore) dopoChiusura(invia ? 'Comanda parcheggiata e inviata' : 'Comanda parcheggiata senza inviare');
   });
 
   $('#annullaComanda').addEventListener('click', async () => {
@@ -497,12 +450,11 @@ if (POS.bar) {
 
 // Comanda parcheggiata o eliminata: al banco si resta, con una comanda vuota per lo stesso
 // operatore (la risposta del server è già quella nuova); da una comanda richiamata si torna al banco
-function dopoChiusura(messaggio, stampa = null) {
+function dopoChiusura(messaggio) {
   if (!alBanco) { location.href = 'comanda.php?bar=1'; return; }
   $('#parcheggio').hidden = true;
   rigaSel = null;
-  if (stampa && stampa.testo) avviso(messaggio + ' · ' + stampa.testo, !stampa.ok);
-  else avviso(messaggio);
+  avviso(messaggio);
 }
 
 // ---------- Cambio operatore al banco ----------

@@ -4,7 +4,6 @@
 //  Solo admin. Sinistra: elenco filtrato per categoria · Destra: scheda
 // ============================================================
 require_once __DIR__ . '/includes/auth.php';
-require_once __DIR__ . '/includes/stampa.php';
 richiedi_login();
 
 $op = operatore_loggato();
@@ -20,14 +19,6 @@ if (empty($_SESSION['csrf'])) {
 
 $categorie = q('SELECT * FROM categorie ORDER BY ordine, id')->fetchAll();
 $cat_ids   = array_column($categorie, 'id');
-$stampanti = q('SELECT * FROM stampanti ORDER BY attiva DESC, nome')->fetchAll();
-$tipi_st   = ['cucina' => 'Cucina', 'bar' => 'Bar', 'cassa' => 'Cassa', 'nessuna' => 'nessuna'];
-
-// Scelta "stampante" del modulo: 'auto', 'no' oppure l'id di una stampante
-function scelta_stampa(array $a): string {
-    if (empty($a['stampa'])) return 'no';
-    return $a['stampante_id'] ? (string)$a['stampante_id'] : 'auto';
-}
 
 $errore = '';
 $dati   = null;   // valori del form da ripresentare dopo un errore
@@ -71,9 +62,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'visibile'     => isset($_POST['visibile']) ? 1 : 0,
         'a_peso'       => ($_POST['tipo_prezzo'] ?? '') === 'peso' ? 1 : 0,   // prezzo fisso oppure al kg
     ];
-    $scelta = (string)($_POST['stampante'] ?? 'auto');
-    $dati['stampa']       = $scelta === 'no' ? 0 : 1;
-    $dati['stampante_id'] = ctype_digit($scelta) ? (int)$scelta : null;
 
     if ($dati['nome'] === '' || mb_strlen($dati['nome']) > 80) {
         $errore = 'Il nome è obbligatorio (max 80 caratteri)';
@@ -85,21 +73,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errore = 'Aliquota IVA non valida';
     } elseif (!preg_match('/^#[0-9a-fA-F]{6}$/', $dati['colore'])) {
         $errore = 'Colore non valido';
-    } elseif ($dati['stampante_id'] && !in_array($dati['stampante_id'], array_column($stampanti, 'id'))) {
-        $errore = 'Stampante non trovata';
     }
 
     if (!$errore) {
         $valori = [$dati['categoria_id'], $dati['nome'], $dati['prezzo'], $dati['aliquota_iva'],
-                   $dati['colore'], $dati['ordine'], $dati['visibile'], $dati['stampante_id'], $dati['stampa'], $dati['a_peso']];
+                   $dati['colore'], $dati['ordine'], $dati['visibile'], $dati['a_peso']];
         if ($id) {
-            q('UPDATE articoli SET categoria_id=?, nome=?, prezzo=?, aliquota_iva=?, colore=?, ordine=?, visibile=?,
-                                   stampante_id=?, stampa=?, a_peso=?
+            q('UPDATE articoli SET categoria_id=?, nome=?, prezzo=?, aliquota_iva=?, colore=?, ordine=?, visibile=?, a_peso=?
                WHERE id=?', [...$valori, $id]);
             $_SESSION['msg'] = "\"{$dati['nome']}\" salvato.";
         } else {
-            q('INSERT INTO articoli (categoria_id, nome, prezzo, aliquota_iva, colore, ordine, visibile, stampante_id, stampa, a_peso)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', $valori);
+            q('INSERT INTO articoli (categoria_id, nome, prezzo, aliquota_iva, colore, ordine, visibile, a_peso)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)', $valori);
             $id = (int)db()->lastInsertId();
             $_SESSION['msg'] = "\"{$dati['nome']}\" inserito.";
         }
@@ -123,23 +108,8 @@ if (!$dati) {
     if (!$dati) {
         $dati = ['id' => 0, 'nome' => '', 'categoria_id' => $cat_sel, 'prezzo' => '',
                  'aliquota_iva' => '10.00', 'colore' => '#ffffff', 'ordine' => 0, 'visibile' => 1,
-                 'stampante_id' => null, 'stampa' => 1, 'a_peso' => 0];
+                 'a_peso' => 0];
     }
-}
-
-// Dove esce davvero ogni prodotto (per l'etichetta sul pulsante)
-$dove = [];
-foreach ($articoli as $a) {
-    $st = stampante_articolo($a);
-    $dove[$a['id']] = !$a['stampa'] ? 'non stampa' : ($st ? $st['nome'] : 'nessuna stampante!');
-}
-
-// Per la scelta "Automatica": tipo di stampante di ogni categoria e stampante che verrebbe usata
-$auto = [];
-foreach ($categorie as $c) {
-    $st = stampante_articolo(['stampa' => 1, 'stampante_id' => null, 'categoria_id' => $c['id']]);
-    $auto[$c['id']] = 'Categoria ' . $c['nome'] . ' → ' . $tipi_st[$c['destinazione']] . ': '
-                    . ($st ? "esce su \"{$st['nome']}\"" : 'nessuna stampante attiva di questo tipo');
 }
 
 $msg = $_SESSION['msg'] ?? '';
@@ -200,7 +170,6 @@ $valuta = impostazione('valuta', '€');
           <span class="nome"><?= h($a['nome']) ?></span>
           <span class="prezzo"><?= $valuta . ' ' . number_format($a['prezzo'], 2, ',', '.') . ($a['a_peso'] ? '/kg ⚖' : '') ?></span>
           <?php if (!$a['visibile']): ?><span class="prezzo">(nascosto)</span><?php endif; ?>
-          <span class="dove-stampa">🖨 <?= h($dove[$a['id']]) ?></span>
         </a>
       <?php endforeach; ?>
       <?php if (!$articoli): ?>
@@ -259,18 +228,6 @@ $valuta = impostazione('valuta', '€');
         </label>
       </div>
 
-      <label>Stampante (dove esce la comanda di questo prodotto)
-        <select name="stampante" id="sceltaStampante">
-          <option value="auto" <?= scelta_stampa($dati) === 'auto' ? 'selected' : '' ?>>Automatica (come la categoria)</option>
-          <?php foreach ($stampanti as $s): ?>
-            <option value="<?= $s['id'] ?>" <?= scelta_stampa($dati) === (string)$s['id'] ? 'selected' : '' ?>>
-              🖨 <?= h($s['nome']) ?> (<?= $tipi_st[$s['tipo']] ?>)<?= $s['attiva'] ? '' : ' - disattivata' ?></option>
-          <?php endforeach; ?>
-          <option value="no" <?= scelta_stampa($dati) === 'no' ? 'selected' : '' ?>>Non stampare</option>
-        </select>
-      </label>
-      <div class="hint" id="notaStampante"></div>
-
       <label class="check">
         <input type="checkbox" name="visibile" <?= $dati['visibile'] ? 'checked' : '' ?>>
         Visibile nella comanda
@@ -288,18 +245,6 @@ $valuta = impostazione('valuta', '€');
   </div>
 
 <script>
-  // Con "Automatica" spiego su quale stampante finirà, in base alla categoria scelta
-  const AUTO = <?= json_encode($auto) ?>;
-  const scelta = document.getElementById('sceltaStampante');
-  const categoria = document.querySelector('[name=categoria_id]');
-  function aggiornaNota() {
-    document.getElementById('notaStampante').textContent =
-      scelta.value === 'auto' ? (AUTO[categoria.value] || '') : '';
-  }
-  scelta.addEventListener('change', aggiornaNota);
-  categoria.addEventListener('change', aggiornaNota);
-  aggiornaNota();
-
   // Prezzo fisso / a peso: l'etichetta dice se il prezzo è al pezzo o al kg
   const VALUTA = <?= json_encode($valuta) ?>;
   function aggiornaPrezzo() {

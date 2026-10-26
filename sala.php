@@ -3,7 +3,6 @@
 //  sala.php  -  Mappa tavoli (schermata 1 di TouchEat)
 // ============================================================
 require_once __DIR__ . '/includes/auth.php';
-require_once __DIR__ . '/includes/stampa.php';
 require_once __DIR__ . '/includes/cambio_tavolo.php';
 richiedi_login();
 
@@ -43,11 +42,6 @@ $param_cambio = $cambio ? '&cambio=1' . ($da_tavolo ? '&da=' . $da_tavolo['id'] 
 $msg = $_SESSION['msg'] ?? '';
 $err = $_SESSION['err'] ?? '';
 unset($_SESSION['msg'], $_SESSION['err']);
-
-// Avviso se si stampa tramite ponte (sito online), ci sono stampanti attive e il ponte non è collegato
-$avviso_ponte = serve_ponte()
-    && q('SELECT 1 FROM stampanti WHERE attiva = 1 LIMIT 1')->fetch()
-    && !ponte_collegato();
 
 // Elenco sale per le tab in alto
 $sale = q('SELECT * FROM sale ORDER BY ordine, id')->fetchAll();
@@ -125,14 +119,6 @@ function da_quanto($min): string {
     <span class="data">Data Lavoro <?= date('d/m/Y') ?></span>
     <span><?= date('H:i') ?></span>
   </div>
-
-  <?php if ($avviso_ponte): ?>
-    <!-- Sparisce da solo quando il ponte si collega (controllo ogni 10 secondi) -->
-    <div class="avviso-ponte" id="avvisoPonte">
-      ⚠ Ponte di stampa NON collegato: le comande restano in coda e non escono.
-      Accendi il PC del locale (il ponte parte da solo all'accesso a Windows) o avvia <b>avvia-ponte.bat</b>.
-    </div>
-  <?php endif; ?>
 
   <?php if ($msg): ?><div class="striscia ok"><?= h($msg) ?></div><?php endif; ?>
   <?php if ($err): ?><div class="striscia errore"><?= h($err) ?></div><?php endif; ?>
@@ -285,16 +271,6 @@ function da_quanto($min): string {
 <?php endif; ?>
 
 <script>
-  // Avviso ponte: ricontrollo finché non si collega
-  if (document.getElementById('avvisoPonte')) {
-    const controlla = setInterval(async () => {
-      try {
-        const r = await (await fetch('api/stato_ponte.php')).json();
-        if (r.collegato) { document.getElementById('avvisoPonte').remove(); clearInterval(controlla); }
-      } catch (e) {}
-    }, 10000);
-  }
-
   // Aggiorna l'orologio ogni minuto senza ricaricare
   setInterval(() => {
     const el = document.querySelector('.inforow span:last-child');

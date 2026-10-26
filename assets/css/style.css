@@ -24,12 +24,6 @@ body { display: flex; flex-direction: column; height: 100vh; background: #0a1a3a
 }
 .inforow .data { font-weight: bold; }
 
-/* Avviso in sala: ponte di stampa non collegato */
-.avviso-ponte {
-  background: #922b21; color: #fff; padding: 10px 16px; font-size: 16px; text-align: center;
-  border-bottom: 2px solid #0a1a3a;
-}
-
 /* Strisce in sala: esito operazioni e modalità cambio tavolo */
 .striscia { padding: 10px 16px; font-size: 16px; color: #fff; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .striscia.ok { background: #1e8449; }
@@ -332,10 +326,6 @@ button.btn { font-family: inherit; }
 a.prod { text-decoration: none; }
 .prod.sel { outline: 4px solid #7CFC00; outline-offset: -2px; }
 .prod.nascosto { opacity: .45; }
-.prod .dove-stampa {
-  font-size: 11px; background: rgba(255,255,255,.75); color: #222; border-radius: 8px; padding: 1px 6px;
-  max-width: 95%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
 
 .scheda {
   width: 380px; background: #0a1a3a; padding: 12px; color: #fff;
@@ -485,44 +475,15 @@ a.prod { text-decoration: none; }
 .cat.cat-gestione small { font-size: 12px; font-weight: normal; }
 .link-scheda { color: #9fc2e8; text-decoration: none; font-size: 15px; }
 
-/* ---------- Ponte di stampa (pagina Stampanti) ---------- */
-.ponte-box {
-  grid-column: 1 / -1; background: #fff; border-radius: 8px; padding: 12px 14px;
-  display: flex; flex-direction: column; gap: 8px; border-left: 8px solid #c0392b;
-}
-.ponte-box:has(.ponte-stato.ok) { border-left-color: #27ae60; }
-.ponte-stato { font-size: 17px; color: #c0392b; }
-.ponte-stato.ok { color: #1e8449; }
-.ponte-stato small { color: #666; }
-.ponte-box .hint { color: #445; font-size: 14px; }
-.ponte-azioni { display: flex; gap: 8px; flex-wrap: wrap; }
-.ponte-azioni .btn { flex-direction: row; min-height: 44px; padding: 8px 14px; }
-.ponte-ultime { font-size: 13px; color: #333; display: flex; flex-direction: column; gap: 2px; }
-.ponte-ultime .errore { color: #c0392b; }
-.ponte-ultime .attesa { color: #b9770e; }
-.ponte-ultime .stampata { color: #1e8449; }
-.ordini:has(.ponte-box) { grid-auto-rows: auto; }
-.ordini:has(.ponte-box) .ordine { min-height: 150px; }
-
 /* ---------- Fiscale ---------- */
 .fiscale { flex: 1; display: flex; gap: 10px; padding: 8px; overflow-y: auto; align-items: flex-start; }
 .fiscale .scheda { flex: 1; width: auto; border-radius: 8px; overflow: visible; }
 .scheda .tre-campi { display: grid; grid-template-columns: 1fr 2fr .7fr; gap: 10px; }
-.reparti { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.reparti label { font-size: 13px; }
-.reparti input { font: inherit; font-size: 18px; padding: 8px; border-radius: 6px; border: 2px solid #2e6fb0; width: 100%; }
 
-/* Tasti documenti nella comanda e finestra scontrino */
+/* Tasti documenti nella comanda (Fattura) */
 .conto-cassa { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 6px; }
 .conto-cassa .btn { flex-direction: row; gap: 6px; min-height: 46px; padding: 6px; font-size: 15px; }
 .btn.viola { background: linear-gradient(#a569bd, #6c3483); }
-.finestra.scontrino-finestra { width: 520px; }
-.pagamenti { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.pagamenti .btn { min-height: 100px; font-size: 18px; }
-.pagamenti .btn .ico { font-size: 32px; }
-.scontrino-stato { padding: 18px; border-radius: 8px; background: #06284b; color: #fff; font-size: 18px; text-align: center; }
-.scontrino-stato.ok { background: #1e8449; }
-.scontrino-stato.errore { background: #922b21; }
 
 /* ---------- Fattura ---------- */
 .fattura-clienti { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #12284f; overflow-y: auto; min-width: 0; }

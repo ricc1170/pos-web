@@ -54,6 +54,11 @@ function impostazione(string $chiave, $default = null) {
     return $cache[$chiave] ?? $default;
 }
 
+function salva_impostazione(string $chiave, string $valore) {
+    q('INSERT INTO impostazioni (chiave, valore) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE valore = VALUES(valore)', [$chiave, $valore]);
+}
+
 // Giornata di lavoro (Dati del locale): inizio e fine "HH:MM"; la fine può essere dopo mezzanotte (10:00 - 03:00)
 const ORARIO_GIORNATA = ['10:00', '03:00'];
 

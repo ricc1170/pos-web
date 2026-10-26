@@ -2,13 +2,14 @@
 // ============================================================
 //  Cambio tavolo: sposta il conto aperto di un tavolo su un altro tavolo.
 //  Se il tavolo di destinazione ha già un conto, i due conti si uniscono.
-//  Le stampanti che avevano già ricevuto comande stampano "CAMBIO TAVOLO".
+//  Il foglietto "CAMBIO TAVOLO" per le stampanti che avevano già ricevuto comande lo stampa
+//  il programma desktop (stampanti configurate sul PC): qui si restituiscono le righe già inviate.
 // ============================================================
-require_once __DIR__ . '/stampa.php';
 
 class ErroreCambio extends Exception {}
 
-// Restituisce [esito, messaggio]; esito = 'ok' | 'serve_unione' (destinazione occupata, va confermata)
+// Restituisce [esito, messaggio, avviso]; esito = 'ok' | 'serve_unione' (destinazione occupata, va confermata).
+// avviso = dati per il foglietto di cambio tavolo (null se nessuna comanda era stata inviata)
 function cambia_tavolo(int $da, int $a, bool $unisci): array {
     if ($da === $a) throw new ErroreCambio('Scegli un tavolo diverso');
 
@@ -29,15 +30,18 @@ function cambia_tavolo(int $da, int $a, bool $unisci): array {
         $c_a = q('SELECT * FROM conti WHERE tavolo_id = ? AND stato = "aperto" LIMIT 1', [$a])->fetch();
         if ($c_a && !$unisci) {
             $pdo->rollBack();
-            return ['serve_unione', "Il tavolo {$t_a['nome']} è occupato: unire i due conti?"];
+            return ['serve_unione', "Il tavolo {$t_a['nome']} è occupato: unire i due conti?", null];
         }
 
-        // Stampanti che hanno già ricevuto comande di questo conto (per avvisarle dello spostamento)
-        $stampanti = [];
-        foreach (q('SELECT a.stampa, a.stampante_id, a.categoria_id FROM righe r JOIN articoli a ON a.id = r.articolo_id
-                    WHERE r.conto_id = ? AND r.invio > 0', [$c_da['id']])->fetchAll() as $art) {
-            if ($st = stampante_articolo($art)) $stampanti[$st['id']] = $st;
+        // Righe già inviate: il programma trova le stampanti che le hanno ricevute e le avvisa dello spostamento
+        $inviate = q('SELECT r.articolo_id, a.categoria_id, cat.destinazione, r.note
+                      FROM righe r JOIN articoli a ON a.id = r.articolo_id LEFT JOIN categorie cat ON cat.id = a.categoria_id
+                      WHERE r.conto_id = ? AND r.invio > 0', [$c_da['id']])->fetchAll();
+        foreach ($inviate as &$r) {
+            $r = ['articolo_id' => (int)$r['articolo_id'], 'categoria_id' => (int)$r['categoria_id'],
+                  'destinazione' => (string)$r['destinazione'], 'note' => (string)$r['note']];
         }
+        unset($r);
 
         if (!$c_a) {
             q('UPDATE conti SET tavolo_id = ? WHERE id = ?', [$a, $c_da['id']]);
@@ -62,18 +66,7 @@ function cambia_tavolo(int $da, int $a, bool $unisci): array {
         throw $e;
     }
 
-    // Foglietto per la cucina/bar: dopo il salvataggio, una stampante lenta non blocca
-    $esiti = [];
-    foreach ($stampanti as $st) {
-        $w = (int)$st['larghezza'];
-        $foglio = ESC_INIT . ESC_CENTRO
-                . ESC_GRANDE . a_capo($c_a ? 'UNIONE TAVOLI' : 'CAMBIO TAVOLO', intdiv($w, 2))
-                . a_capo("{$t_da['nome']} -> {$t_a['nome']}", intdiv($w, 2)) . ESC_NORMALE
-                . a_capo("{$t_da['sala']} -> {$t_a['sala']}", $w)
-                . a_capo(date('d/m H:i'), $w)
-                . fine_stampa();
-        [$ok, ] = stampa($st, $foglio, 'Cambio tavolo');
-        $esiti[] = ($ok ? '✔ ' : '✖ ') . $st['nome'];
-    }
-    return ['ok', $messaggio . ($esiti ? ' — avviso stampato: ' . implode(' · ', $esiti) : '')];
+    $avviso = $inviate ? ['unione' => (bool)$c_a, 'da' => $t_da['nome'], 'a' => $t_a['nome'],
+                          'sala_da' => $t_da['sala'], 'sala_a' => $t_a['sala'], 'righe' => $inviate] : null;
+    return ['ok', $messaggio, $avviso];
 }

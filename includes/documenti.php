@@ -1,13 +1,13 @@
 <?php
 // ============================================================
-//  Documenti: proforma (preconto), scontrino (Epson RT), fattura (FatturaPA)
-//  e chiusura del conto. Usato da api/conto.php, fattura.php, api/ponte.php.
+//  Documenti: proforma (preconto), scontrino (registratore telematico), fattura (FatturaPA)
+//  e chiusura del conto. Usato da api/conto.php e fattura.php.
+//  Stampe e registratore Epson li gestisce il programma desktop della cassa (configurazione sul PC):
+//  il sito registra i documenti e restituisce i dati da stampare.
 // ============================================================
-require_once __DIR__ . '/stampa.php';
 
-// Pagamenti -> codici Epson (paymentType/index) e FatturaPA (ModalitaPagamento)
-const PAGAMENTI_EPSON = [1 => [0, 1], 2 => [2, 1], 3 => [3, 1]];          // contanti (0/1 verificato), carta, buoni pasto
-const PAGAMENTI_FPA   = [1 => 'MP01', 2 => 'MP08', 3 => 'MP08'];
+// Pagamenti -> codici FatturaPA (ModalitaPagamento). I codici Epson stanno nel programma (pos_desktop/cassa_rt.py)
+const PAGAMENTI_FPA = [1 => 'MP01', 2 => 'MP08', 3 => 'MP08'];
 
 // ------------------------------------------------------------
 //  Dati del conto
@@ -54,180 +54,40 @@ function chiudi_conto(int $conto_id, int $pagamento_id) {
     q('INSERT INTO pagamenti (conto_id, forma_pagamento_id, importo) VALUES (?, ?, ?)', [$conto_id, $pagamento_id, $c['totale']]);
 }
 
-// ------------------------------------------------------------
-//  Stampe su carta: preconto (proforma) e copia di cortesia della fattura
-// ------------------------------------------------------------
-
-// Stampante per conti e documenti: la prima di tipo Cassa attiva, altrimenti la prima attiva
-function stampante_cassa(): ?array {
-    $st = q('SELECT * FROM stampanti WHERE attiva = 1 ORDER BY tipo = "cassa" DESC, id LIMIT 1')->fetch();
-    return $st ?: null;
-}
-
-// Riga "descrizione ........ importo" larga $w caratteri
-function riga_importo(string $sx, float $importo, int $w): string {
-    $dx = number_format($importo, 2, ',', '.');
-    $sx = testo_stampa($sx);
-    $spazio = $w - strlen($dx) - 1;
-    if (strlen($sx) > $spazio) {
-        // Descrizione lunga: va a capo e l'importo finisce da solo, allineato a destra
-        return wordwrap($sx, $w, "\n", true) . "\n" . str_pad($dx, $w, ' ', STR_PAD_LEFT) . "\n";
-    }
-    return str_pad($sx, $spazio) . ' ' . $dx . "\n";
-}
-
-// Corpo comune: righe del conto con importi, coperto, totale
-function corpo_conto(array $c, int $w): string {
-    $sep = str_repeat('-', $w) . "\n";
-    $out = $sep;
+// Dati del conto per il programma desktop (preconto, scontrino simulato o Epson): prezzi e aliquote per riga
+function conto_da_stampare(array $c): array {
+    $righe = [];
     foreach ($c['righe'] as $r) {
-        $q = (float)$r['quantita'];
-        $out .= riga_importo(testo_quantita($q, (bool)$r['a_peso']) . ' x ' . $r['descrizione'], round($q * $r['prezzo'], 2), $w);
-        foreach ($r['varianti'] as $v) $out .= a_capo('   ' . $v['segno'] . ' ' . $v['nome'], $w, 5);
+        $righe[] = ['descrizione' => $r['descrizione'], 'quantita' => (float)$r['quantita'], 'prezzo' => (float)$r['prezzo'],
+                    'aliquota_iva' => (float)$r['aliquota_iva'], 'a_peso' => (bool)$r['a_peso'], 'varianti' => $r['varianti']];
     }
-    if ($c['coperti'] && $c['prezzo_coperto'] > 0) {
-        $out .= riga_importo("{$c['coperti']} x Coperto", $c['coperti'] * $c['prezzo_coperto'], $w);
-    }
-    $out .= $sep
-          . ESC_GRASSETTO_ON . ESC_ALTO . riga_importo('TOTALE ' . impostazione('valuta', '€'), (float)$c['totale'], $w)
-          . ESC_NORMALE . ESC_GRASSETTO_OFF;
-    return $out;
-}
-
-function foglio_proforma(array $st, array $c): string {
-    $w = (int)$st['larghezza'];
-    return ESC_INIT . ESC_CENTRO
-         . ESC_GRASSETTO_ON . a_capo((string)impostazione('nome_locale', ''), $w) . ESC_GRASSETTO_OFF
-         . ESC_GRANDE . a_capo('PRECONTO', intdiv($w, 2)) . ESC_NORMALE
-         . a_capo(titolo_conto($c) . ' - ' . date('d/m/Y H:i'), $w)
-         . ESC_SINISTRA . corpo_conto($c, $w)
-         . ESC_CENTRO . a_capo('Documento non fiscale', $w)
-         . fine_stampa();
-}
-
-function foglio_cortesia_fattura(array $st, array $c, array $doc, array $cli): string {
-    $w = (int)$st['larghezza'];
-    return ESC_INIT . ESC_CENTRO
-         . ESC_GRASSETTO_ON . a_capo((string)impostazione('azienda_denominazione', impostazione('nome_locale', '')), $w) . ESC_GRASSETTO_OFF
-         . a_capo(impostazione('azienda_indirizzo', '') . ' - ' . impostazione('azienda_cap', '') . ' ' . impostazione('azienda_comune', ''), $w)
-         . a_capo('P.IVA ' . impostazione('azienda_piva', ''), $w)
-         . ESC_GRANDE . a_capo("FATTURA {$doc['numero']}/{$doc['anno']}", intdiv($w, 2)) . ESC_NORMALE
-         . a_capo('del ' . date('d/m/Y', strtotime($doc['data'])), $w)
-         . ESC_SINISTRA . a_capo('Cliente: ' . nome_cliente($cli), $w)
-         . a_capo(($cli['piva'] ? 'P.IVA ' . $cli['piva'] : 'C.F. ' . $cli['cf']), $w)
-         . corpo_conto($c, $w)
-         . ESC_CENTRO . a_capo('Copia di cortesia: la fattura elettronica e\' quella inviata allo SDI', $w)
-         . fine_stampa();
-}
-
-// Stampa un documento sulla stampante Cassa. Restituisce [riuscita, messaggio]
-function stampa_su_cassa(string $descrizione, callable $foglio): array {
-    $st = stampante_cassa();
-    if (!$st) return [false, 'Nessuna stampante attiva per stampare il ' . strtolower($descrizione)];
-    return stampa($st, $foglio($st), $descrizione);
+    return [
+        'titolo'         => titolo_conto($c),
+        'nome_locale'    => (string)impostazione('nome_locale', ''),
+        'valuta'         => (string)impostazione('valuta', '€'),
+        'righe'          => $righe,
+        'coperti'        => (int)$c['coperti'],
+        'prezzo_coperto' => (float)$c['prezzo_coperto'],
+        'totale'         => (float)$c['totale'],
+    ];
 }
 
 // ------------------------------------------------------------
-//  Scontrino su registratore telematico Epson (protocollo Fiscal ePOS-Print / fpmate.cgi)
+//  Scontrino: la modalità della cassa (simulata / Epson) la sceglie il programma desktop
 // ------------------------------------------------------------
 
-// Modalità della cassa: "spenta", "simulata" (prove: nessuno scontrino fiscale) o "epson" (registratore in rete)
-function rt_modo(): string {
-    $m = (string)impostazione('rt_modo', '');
-    if ($m === '') $m = impostazione('rt_attivo') === '1' ? 'epson' : 'spenta';   // impostazione vecchia
-    return in_array($m, ['spenta', 'simulata', 'epson'], true) ? $m : 'spenta';
-}
-
-function rt_simulata(): bool {
-    return rt_modo() === 'simulata';
-}
-
-function rt_configurato(): bool {
-    return rt_simulata()
-        || (rt_modo() === 'epson' && filter_var((string)impostazione('rt_ip', ''), FILTER_VALIDATE_IP));
-}
-
-// Scontrino simulato: numero "SIM-n", conto chiuso subito, foglio NON fiscale sulla stampante Cassa
+// Scontrino simulato: numero "SIM-n", conto chiuso subito. Il foglio NON fiscale lo stampa il programma.
+// Restituisce [id del documento, numero]
 function scontrino_simulato(array $c, int $pagamento_id, int $operatore_id): array {
     $n = 1 + (int)q('SELECT COUNT(*) FROM documenti WHERE tipo = "scontrino" AND rt_numero LIKE "SIM-%"')->fetchColumn();
     q('INSERT INTO documenti (tipo, conto_id, data, totale, pagamento_id, stato, rt_numero, operatore_id)
        VALUES ("scontrino", ?, NOW(), ?, ?, "emesso", ?, ?)', [$c['id'], $c['totale'], $pagamento_id, "SIM-$n", $operatore_id]);
     $doc_id = (int)db()->lastInsertId();
     chiudi_conto((int)$c['id'], $pagamento_id);
-    $pagamento = (string)q('SELECT nome FROM forme_pagamento WHERE id = ?', [$pagamento_id])->fetchColumn();
-    $stampa = stampa_su_cassa('Scontrino simulato', function ($st) use ($c, $n, $pagamento) {
-        $w = (int)$st['larghezza'];
-        return ESC_INIT . ESC_CENTRO
-             . ESC_GRASSETTO_ON . a_capo((string)impostazione('nome_locale', ''), $w) . ESC_GRASSETTO_OFF
-             . ESC_GRANDE . a_capo('SIMULAZIONE', intdiv($w, 2)) . ESC_NORMALE
-             . a_capo("Scontrino simulato n. SIM-$n - " . date('d/m/Y H:i'), $w)
-             . a_capo(titolo_conto($c), $w)
-             . ESC_SINISTRA . corpo_conto($c, $w)
-             . a_capo('Pagamento: ' . $pagamento, $w)
-             . ESC_CENTRO . ESC_GRASSETTO_ON . a_capo('NON FISCALE - SOLO PROVA', $w) . ESC_GRASSETTO_OFF
-             . fine_stampa();
-    });
-    return [$doc_id, $stampa];
+    return [$doc_id, "SIM-$n"];
 }
 
-// Indirizzo del servizio fiscale della Epson (porta 80; "rt_porta" solo per prove)
-function rt_url(): string {
-    $porta = (int)impostazione('rt_porta', 80);
-    return 'http://' . impostazione('rt_ip') . ($porta !== 80 ? ":$porta" : '') . '/cgi-bin/fpmate.cgi?devid=local_printer&timeout=10000';
-}
-
-// Reparto della cassa per un'aliquota IVA (impostazione rt_reparti "22=1;10=2;4=3;5=4", come nella cassa Epson)
-function reparto_rt(float $aliquota): int {
-    foreach (explode(';', (string)impostazione('rt_reparti', '22=1;10=2;4=3;5=4')) as $coppia) {
-        [$a, $r] = array_pad(explode('=', $coppia), 2, null);
-        if ($a !== null && abs((float)$a - $aliquota) < 0.001) return max(1, (int)$r);
-    }
-    return 1;
-}
-
-function xml_attr(string $s): string {
-    return htmlspecialchars($s, ENT_XML1 | ENT_QUOTES, 'UTF-8');
-}
-
-function importo_rt(float $n): string {
-    return number_format($n, 2, ',', '');
-}
-
-function busta_epson(string $corpo): string {
-    return '<?xml version="1.0" encoding="utf-8"?>'
-         . '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body>' . $corpo . '</s:Body></s:Envelope>';
-}
-
-// Scontrino: una riga per prodotto (prezzo comprensivo delle aggiunte), coperto, pagamento
-function xml_scontrino(array $c, int $pagamento_id): string {
-    $op = xml_attr((string)impostazione('rt_operatore', '1'));
-    $x = "<printerFiscalReceipt><beginFiscalReceipt operator=\"$op\" />";
-    foreach ($c['righe'] as $r) {
-        $desc = substr(testo_stampa(descrizione_riga($r)), 0, 38);
-        $q = rtrim(rtrim(number_format((float)$r['quantita'], 3, ',', ''), '0'), ',');
-        $x .= '<printRecItem operator="' . $op . '" description="' . xml_attr($desc) . '" quantity="' . $q
-            . '" unitPrice="' . importo_rt((float)$r['prezzo']) . '" department="' . reparto_rt((float)$r['aliquota_iva'])
-            . '" justification="1" />';
-    }
-    if ($c['coperti'] && $c['prezzo_coperto'] > 0) {
-        $x .= '<printRecItem operator="' . $op . '" description="COPERTO" quantity="' . (int)$c['coperti']
-            . '" unitPrice="' . importo_rt($c['prezzo_coperto']) . '" department="' . reparto_rt(10) . '" justification="1" />';
-    }
-    [$tipo, $indice] = PAGAMENTI_EPSON[$pagamento_id] ?? [0, 0];
-    $nome = (string)q('SELECT nome FROM forme_pagamento WHERE id = ?', [$pagamento_id])->fetchColumn();
-    $x .= '<printRecTotal operator="' . $op . '" description="' . xml_attr(strtoupper(testo_stampa($nome))) . '" payment="'
-        . importo_rt((float)$c['totale']) . '" paymentType="' . $tipo . '" index="' . $indice . '" justification="1" />'
-        . "<endFiscalReceipt operator=\"$op\" /></printerFiscalReceipt>";
-    return busta_epson($x);
-}
-
-// Interrogazione dello stato della cassa (pulsante "Verifica collegamento", non stampa niente)
-function xml_stato_rt(): string {
-    return busta_epson('<printerCommand><queryPrinterStatus operator="' . xml_attr((string)impostazione('rt_operatore', '1'))
-                     . '" statusType="1" /></printerCommand>');
-}
-
-// Legge la risposta della Epson: [riuscito, numero scontrino, numero chiusura Z, messaggio]
+// Legge la risposta della Epson (riportata dal programma): [riuscito, numero scontrino, numero chiusura Z, messaggio]
 function leggi_risposta_rt(string $xml): array {
     if (!preg_match('/<response\b[^>]*success="(true|false)"[^>]*>/i', $xml, $m)) {
         return [false, null, null, 'risposta non valida dalla cassa'];
@@ -254,52 +114,12 @@ function registra_esito_rt(int $doc_id, bool $collegato, string $risposta, strin
     }
 }
 
-// Scontrini consegnati al ponte da più di 60 secondi senza risposta: segnati come errore,
-// perché non si sa se la cassa li ha stampati (va controllato prima di riprovare)
+// Scontrini senza esito dal programma dopo 2 minuti (si è fermato a metà): errore, perché non si sa
+// se la cassa li ha stampati (va controllato prima di riprovare)
 function scontrini_senza_risposta() {
-    foreach (q('SELECT id, documento_id FROM coda_stampa
-                WHERE tipo = "rt" AND stato = "attesa" AND tentativi = 1 AND ultimo_tentativo < NOW() - INTERVAL 60 SECOND')->fetchAll() as $l) {
-        q('UPDATE coda_stampa SET stato = "errore", errore = "nessuna risposta" WHERE id = ?', [$l['id']]);
-        if ($l['documento_id']) {
-            q('UPDATE documenti SET stato = "errore", errore = ? WHERE id = ? AND stato = "attesa"',
-              ['nessuna risposta dalla cassa: controlla se lo scontrino è uscito prima di riprovare', $l['documento_id']]);
-        }
-    }
-    // Scontrini diretti (programma desktop) senza esito dopo 2 minuti: il programma si è fermato a metà
-    q('UPDATE documenti d SET d.stato = "errore", d.errore = ?
-       WHERE d.tipo = "scontrino" AND d.stato = "attesa" AND d.data < NOW() - INTERVAL 2 MINUTE
-         AND NOT EXISTS (SELECT 1 FROM coda_stampa cs WHERE cs.documento_id = d.id)',
+    q('UPDATE documenti SET stato = "errore", errore = ?
+       WHERE tipo = "scontrino" AND stato = "attesa" AND data < NOW() - INTERVAL 2 MINUTE',
       ['nessun esito dal programma della cassa: controlla se lo scontrino è uscito prima di riprovare']);
-    // Mai consegnati entro 2 minuti (ponte spento): annullati, così non escono più tardi a sorpresa
-    foreach (q('SELECT id, documento_id FROM coda_stampa
-                WHERE tipo = "rt" AND stato = "attesa" AND tentativi = 0 AND creato < NOW() - INTERVAL 2 MINUTE')->fetchAll() as $l) {
-        q('UPDATE coda_stampa SET stato = "errore", errore = "ponte non collegato" WHERE id = ?', [$l['id']]);
-        if ($l['documento_id']) {
-            q('UPDATE documenti SET stato = "errore", errore = ? WHERE id = ? AND stato = "attesa"',
-              ['ponte di stampa non collegato, scontrino annullato', $l['documento_id']]);
-        }
-    }
-}
-
-// Invio alla cassa: diretto se il server è nella rete del locale, altrimenti tramite il ponte (una sola volta, senza ripetere)
-function invia_rt(string $xml, string $descrizione, ?int $doc_id): void {
-    if (usa_ponte((string)impostazione('rt_ip'))) {
-        q('INSERT INTO coda_stampa (tipo, documento_id, descrizione, dati) VALUES ("rt", ?, ?, ?)',
-          [$doc_id, mb_substr($descrizione, 0, 100), base64_encode($xml)]);
-        return;
-    }
-    $ctx = stream_context_create(['http' => [
-        'method' => 'POST', 'timeout' => 15, 'ignore_errors' => true,
-        'header' => "Content-Type: text/xml; charset=utf-8\r\n", 'content' => $xml,
-    ]]);
-    $risposta = @file_get_contents(rt_url(), false, $ctx);
-    $errore = $risposta === false ? 'cassa ' . impostazione('rt_ip') . ' non raggiungibile' : '';
-    if ($doc_id) {
-        registra_esito_rt($doc_id, $risposta !== false, (string)$risposta, $errore);
-    } else {
-        salva_impostazione('rt_ultima_verifica', date('d/m H:i') . ' - '
-            . ($risposta === false ? $errore : (leggi_risposta_rt($risposta)[0] ? 'cassa collegata e pronta' : leggi_risposta_rt($risposta)[3])));
-    }
 }
 
 // ------------------------------------------------------------

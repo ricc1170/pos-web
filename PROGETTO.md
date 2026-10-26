@@ -24,7 +24,7 @@ Si parte dalla **logica e dall'aspetto** di TouchEat, senza copiarne il codice.
 Dettagli header TouchEat reale: "TouchEat - Rel. 10.6.6 - SN#:00977 - Int.: PIZZERIA BUGLIANI SNC - Cassa: 2", riga con Utente / Data Lavoro / Data Sistema / ora.
 
 ## Schema database (file `database.sql`)
-Tabelle: `operatori` (login PIN), `sale`, `tavoli` (con forma/dimensioni/posizione per la piantina), `categorie`, `articoli` (con colore pulsante), `conti` (tavolo aperto), `righe` (prodotti ordinati, con campo `invio` per raggruppare le comande), `forme_pagamento`, `pagamenti` (conto misto), `stampanti` (IP di rete ESC/POS), `impostazioni` (chiave/valore).
+Tabelle: `operatori` (login PIN), `sale`, `tavoli` (con forma/dimensioni/posizione per la piantina), `categorie`, `articoli` (con colore pulsante), `conti` (tavolo aperto), `righe` (prodotti ordinati, con campo `invio` per raggruppare le comande), `forme_pagamento`, `pagamenti` (conto misto), `stampanti` (non più usata dal sito: le stampanti sono nel programma desktop), `impostazioni` (chiave/valore).
 
 ## Struttura file
 ```
@@ -38,9 +38,9 @@ pos/
 ├── operatori.php         operatori: nome, PIN (4–6 cifre, mai mostrato), ruolo, attivo. Se ha comande → disattivato. Sempre ≥1 admin attivo; non si può declassare/disattivare se stessi
 ├── categorie.php         categorie: nome, colore, ordine, destinazione (cucina/bar/nessuna). Non si cancella se contiene prodotti
 ├── varianti.php          varianti/ingredienti: nome, prezzo aggiunta, categorie (o tutte), ordine, attiva
-├── stampanti.php         stampanti di rete: nome, IP, porta, tipo (cucina/bar/cassa), carta (larghezza in caratteri), attiva, prova di stampa
-├── includes/stampa.php   ESC/POS: invia_a_stampante() via socket IP:porta (timeout 4 s), testo_stampa() (UTF-8 → cp1252), fine_stampa() (avanza 5 + taglio), scontrino_prova()
-├── generali.php          dati del locale (tabella impostazioni): nome, numero cassa, coperto, valuta
+├── includes/stampa.php   solo dati_comanda(): righe della comanda appena inviata, restituite al programma desktop che la stampa
+├── generali.php          dati del locale (tabella impostazioni): nome, numero cassa, coperto, valuta; download "POS a tutto schermo.bat"
+├── fiscale.php           dati azienda per le fatture e numerazione (la cassa Epson si configura nel programma desktop)
 ├── articoli.php          gestione prodotti, solo admin (inserisci/modifica/cancella; se già venduto → nascosto)
 ├── bar.php               elenco comande Bar parcheggiate (per orario di ritiro)
 ├── tavoli.php            gestione sale e tavoli, solo admin (piantina con trascinamento; tavolo con conti → nascosto)
@@ -48,9 +48,9 @@ pos/
 ├── web.config            regole per server IIS (Aruba): pagina iniziale, blocco cartelle interne e file .sql/.md
 ├── migrazioni/           script SQL per aggiornare database già installati (001_asporto … 012_vendita_a_peso)
 ├── logout.php
-├── api/conto.php         AJAX JSON: stato, aggiungi, quantita, elimina, nota, coperti, invia, parcheggia, annulla
+├── api/conto.php         AJAX JSON: stato, aggiungi, quantita, elimina, nota, coperti, invia, parcheggia, annulla, proforma, scontrino, documento, esito_scontrino
 ├── api/desktop.php       JSON per il programma desktop Python: login, sala, info_sala, menu, parcheggi, cambio (vedi sotto)
-├── includes/db.php       PDO + helper: db(), q(), impostazione(), h()
+├── includes/db.php       PDO + helper: db(), q(), impostazione(), salva_impostazione(), h()
 ├── includes/auth.php     login/sessione: login_pin(), richiedi_login(), operatore_loggato(), richiedi_admin(), controlla_csrf(), pin_valido(), pin_debole()
 ├── assets/css/style.css  tema grafico stile TouchEat
 └── assets/js/comanda.js  logica schermata comanda (chiama api/conto.php e ridisegna il conto)
@@ -93,7 +93,8 @@ Convenzioni: funzione `q($sql,$params)` per query preparate; `h()` per l'output 
 - Destinazione libera: il conto cambia `tavolo_id`. Occupata: conferma e **unione** (righe e documenti al conto di
   destinazione, comande inviate rinumerate dopo le sue, coperti sommati, totale ricalcolato, conto origine eliminato).
 - Blocco dei due tavoli in ordine di id (FOR UPDATE). Vietato se c'è uno scontrino in corso.
-- Se c'erano comande inviate: foglietto "CAMBIO TAVOLO a -> b" / "UNIONE TAVOLI" sulle stampanti di quei prodotti.
+- Se c'erano comande inviate: la risposta contiene `avviso` (righe già inviate); il foglietto "CAMBIO TAVOLO a -> b" /
+  "UNIONE TAVOLI" lo stampa il programma desktop. Dal sito (tablet) il cambio non stampa niente.
 
 ### Info Sala (`sala.php`)
 - Finestra sopra la piantina: occupati / liberi / coperti / totale aperto della sala; elenco tavoli occupati con coperti,
@@ -119,50 +120,29 @@ Convenzioni: funzione `q($sql,$params)` per query preparate; `h()` per l'output 
 - Nome tavolo unico tra i tavoli attivi (la comanda lo mostra senza sala). Nuovo tavolo = numero più alto + 1.
 - Cancellare un tavolo: vietato se ha un conto aperto; se ha conti passati viene nascosto (`tavoli.attivo = 0`), altrimenti cancellato. `sala.php` mostra solo i tavoli attivi.
 - Cancellare una sala: solo se non contiene tavoli (nemmeno nascosti).
-- [~] **Tappa 3** — Cassa. FATTO (migrazione 010, `includes/documenti.php`): tasti **Proforma** (preconto su stampante
-  Cassa, tutti) · **Scontrino** (Epson RT, solo cassa/admin) · **Fattura** (`fattura.php`, FatturaPA XML) nella comanda;
-  pagina **Fiscale** (dati azienda, Epson IP/reparti/operatore, verifica, ultima fattura esterna dell'anno) e **Documenti**.
-  - Scontrino: `xml_scontrino()` (fpmate.cgi, SOAP printerFiscalReceipt). Diretto se in LAN, altrimenti coda `tipo='rt'`
-    consegnata UNA volta al ponte versione ≥2 (header X-Ponte-Versione); il conto si chiude SOLO quando la Epson risponde
-    success="true" (`registra_esito_rt`). Non consegnati in 2 min o senza risposta in 60 s → errore (mai ristampati da soli).
-  - Pagamenti Epson: contanti 0/0, carta 2/1, buoni 3/1 (`PAGAMENTI_EPSON`) — DA VERIFICARE sulla cassa vera.
-  - Modalità cassa `rt_modo`: spenta / **simulata** (in uso ora: `scontrino_simulato()` numeri SIM-n, conto chiuso subito,
-    foglio "NON FISCALE" sulla stampante Cassa) / epson. La Epson del locale forse è collegata in seriale: se non ha
-    porta di rete servirà il software Epson sul PC o il protocollo seriale nativo (da decidere col modello esatto).
+- [~] **Tappa 3** — Cassa. FATTO (migrazione 010, `includes/documenti.php`). Dal 25/10/2026 **stampanti e cassa fiscale
+  (Epson RT) sono configurate SOLO nel programma desktop** (Impostazioni > Cassa fiscale): il sito non stampa più niente.
+  - Proforma e Scontrino si fanno dal programma desktop; nella comanda del sito (tablet) resta solo **Fattura** (cassa/admin).
+  - `api/conto.php` `proforma`: registra il documento e restituisce `da_stampare` (`conto_da_stampare()`), stampato dal programma.
+  - `scontrino`: richiede `modo` = `simulata` | `epson` inviato dal programma (senza → errore "si emette dal programma della cassa").
+    simulata → `scontrino_simulato()` (SIM-n), conto chiuso subito, `da_stampare` + `numero` per il foglio NON fiscale;
+    epson → documento "attesa" + `da_stampare`; il programma manda lo scontrino alla Epson e riporta l'esito con
+    `esito_scontrino {id, collegato, risposta, errore}` (`registra_esito_rt`): il conto si chiude SOLO se la Epson ha emesso.
+    `documento {id}` = stato; `scontrini_senza_risposta()` mette in errore quelli rimasti in attesa.
+  - Pagina **Fiscale**: dati azienda + ultima fattura esterna dell'anno. **Documenti**: elenco scontrini/fatture/preconti.
   - Fattura: numero progressivo per anno (+ `fattura_ultimo_<anno>`), scorporo IVA per riga, XML validato con lo schema
-    ufficiale FatturaPA 1.2.2; copia di cortesia stampata. L'utente carica l'XML sul portale AdE.
+    ufficiale FatturaPA 1.2.2; nessuna copia di cortesia stampata. L'utente carica l'XML sul portale AdE.
   - Mancano: pagamento misto, sconto/abbuono, nota di credito, chiusura giornaliera (Z) dalla cassa.
-- [ ] **Tappa 4** — Stampa comanda cucina / scontrino su stampanti ESC/POS di rete (socket IP:9100).
-  Configurazione stampanti già fatta (`stampanti.php`, migrazione 005).
-  **Ponte di stampa** (fatto, migrazione 006): l'utente lavora ONLINE. `stampa($st, $dati, $descr)` in `includes/stampa.php`
-  stampa diretto se il server è nella LAN, altrimenti mette in `coda_stampa` (base64). Sul PC del locale gira `ponte.ps1`
-  (scaricato da Stampanti, con URL + chiave dentro; modello in `includes/ponte-modello.ps1`) che ogni 2 s chiama
-  `api/ponte.php?azione=prendi` (header `X-Ponte-Chiave`), invia a IP:porta e riporta `esito`. Errori: riprova ogni 10 s,
-  dopo 30 tentativi → "errore". Stato in pagina Stampanti (collegato se contatto < 30 s). Per provarlo in locale: impostazione `stampa_ponte` = 1.
-  ⚠ Non usare Invoke-RestMethod nel ponte: in PowerShell 5 tiene aperte le connessioni e dopo 2 richieste si blocca per sempre
-  (successo davvero). Il ponte usa `HttpWebRequest` con KeepAlive=false e timeout, disattiva la "modalità selezione" della
-  console (un clic nella finestra la congela), forza https per il sito online e scrive `%LOCALAPPDATA%\PontePOS\ponte.log`.
-  Avvio automatico: `installa-ponte.bat` (= `ponte.ps1 -Installa`) copia in `%LOCALAPPDATA%\PontePOS` e crea il collegamento in
-  Esecuzione automatica (finestra ridotta a icona); `-Rimuovi` lo toglie; mutex `Local\PontePOS` = una sola copia.
-  Un sito non può avviare programmi sul PC: al login la sala mostra un avviso rosso se il ponte non è collegato
-  (`api/stato_ponte.php`, ricontrollo ogni 10 s, sparisce da solo).
-  Le future stampe di comande/scontrini devono passare SEMPRE da `stampa()`.
-  **Seriali (solo base, migrazione 009)**: `stampanti.collegamento` rete/seriale + `com`, `baud`, `flusso`; le seriali vanno sempre
-  al ponte (`via_ponte()`), che scrive sulla porta COM (`Invia-Seriale`) e segnala le porte del PC (`X-Ponte-Porte` → `ponte_porte`).
-  MANCA il modulo in `stampanti.php` per scegliere "Seriale": rimandato (23/10/2026). Il terminale Android H10-1 con stampante
-  seriale interna (115200 8N1) NON è usabile dal browser: servirebbe un'app Android; l'utente ha scelto di restare sul PC Windows.
-  **Stampante per prodotto** (migrazione 007): `articoli.stampante_id` (NULL = automatica: prima stampante attiva del tipo = destinazione
-  della categoria) e `articoli.stampa` (0 = non stampare). La regola sta in `stampante_articolo($art)` in `includes/stampa.php`:
-  usarla per smistare le righe della comanda tra le stampanti.
-  **Stampa comande** (fatto): `invia_righe()` in `api/conto.php` segna `$da_stampare`; DOPO il commit `stampa_comanda($conto, $invio)`
-  raggruppa le righe per stampante e manda un foglio per stampante (`foglio_comanda()`: TAVOLO n / ASPORTO hh:mm / BAR, comanda N,
-  ora, operatore, coperti, righe "Q x PRODOTTO" doppia altezza + note, "ARTICOLI: N" = somma quantità del foglio, note conto). La risposta JSON ha `stampa: {ok, testo}`
-  mostrato in basso (rosso se problemi). Vale per Invia, uscita con "inviare?" e Parcheggio con "Invia in cucina".
-  Da fare: ristampa di una comanda, stampa conto/scontrino (cassa).
-  Stampante del locale: **Bixolon SRP-350/352 Plus III**, 192.168.0.77:9100, ESC/POS RAW TCP, cp1252, 32 caratteri/riga (16 a doppia dimensione),
-  taglio = `1B 64 05` + `1D 56 00`. ⚠ Nella rete del locale (192.168.1.x) la stampante che funziona col ponte è a **192.168.1.100**
-  (verificato il 23/10/2026: stampa riuscita online tramite ponte); 192.168.0.77 era un'altra rete. ⚠️ Il sito online (Aruba) non raggiunge le stampanti della LAN del locale:
-  per questo c'è il ponte di stampa (sotto).
+- [x] **Tappa 4** — Stampa comande: la fa il **programma desktop** sulle stampanti configurate sul PC della cassa.
+  `invia_righe()` in `api/conto.php` segna `$da_stampare`; dopo il commit la risposta di `invia` e di `parcheggia` (con
+  `invia: true`) contiene `comanda` (`dati_comanda($conto, $invio)`: intestazione + righe con categoria/destinazione,
+  varianti e note). Il programma smista le righe tra le sue stampanti (destinazione della categoria = tipo di stampante
+  predefinito; stampante per prodotto e per nota scelte nel programma). I tablet NON stampano (scelta dell'utente).
+  Tolti il 25/10/2026: pagina `stampanti.php`, ponte di stampa (`ponte.ps1`, `api/ponte.php`, `api/stato_ponte.php`,
+  coda `coda_stampa`), scelta stampante in Articoli e Note rapide. Le colonne `articoli.stampante_id`/`stampa`,
+  `note_rapide.stampante_id` e le tabelle `stampanti`/`coda_stampa` restano nel database ma il sito non le usa più.
+  Stampante del locale: **Bixolon SRP-350/352 Plus III**, ESC/POS RAW TCP porta 9100, cp1252, 32 caratteri/riga,
+  nella rete del locale a **192.168.1.100** (verificato il 23/10/2026).
 - [ ] **Tappa 5** — Sincronizzazione multi-postazione (polling AJAX dei tavoli/conti).
 
 ## Tutto schermo
@@ -171,9 +151,9 @@ Convenzioni: funzione `q($sql,$params)` per query preparate; `h()` per l'output 
   Tablet: "Aggiungi a schermata Home"/"Installa app" → si apre a tutto schermo e resta così. Tag in `<head>` di tutte le pagine.
 - `assets/js/schermo.js` (in tutte le pagine): registra sw.js. Il tutto schermo automatico al primo tocco è stato TOLTO su
   richiesta dell'utente (23/10/2026); restano app installabile e "POS a tutto schermo.bat", usati solo se scelti.
-- PC: **POS a tutto schermo.bat** (modello `includes/schermo-modello.bat`, scaricabile da Stampanti; copia in `C:\xampp\pos-online\`):
-  avvia il ponte (`%LOCALAPPDATA%\PontePOS\ponte.ps1` o quello accanto al .bat; il mutex evita doppioni) e apre il sito
-  in modalità chiosco (Chrome/Edge/Firefox; uscita Alt+F4). I file scaricati usano sempre https quando il sito non è in LAN.
+- PC: **POS a tutto schermo.bat** (modello `includes/schermo-modello.bat`, scaricabile da Impostazioni > Dati del locale,
+  `generali.php?scarica=schermo`): apre il sito in modalità chiosco (Chrome/Edge/Firefox; uscita Alt+F4).
+  L'indirizzo dentro il file usa sempre https quando il sito non è in LAN.
 - `web.config`: mimeMap per .json (remove + add, così non va in conflitto su IIS).
 - Nuove pagine: copiare il blocco di `<head>` (manifest, meta, schermo.js) dalle altre.
 
@@ -201,7 +181,9 @@ Convenzioni: funzione `q($sql,$params)` per query preparate; `h()` per l'output 
   comanda (categorie, prodotti, griglia VARIANTI con − SENZA, finestra Varianti, note, coperti, tastierino, Invia, Proforma,
   Scontrino con attesa della cassa, banco multi-operatore, Parcheggio, Richiama) · parcheggi (apri / elimina).
   Operatore del banco ricordato in QSettings (registro di Windows) invece di localStorage.
-- Restano sul sito (si aprono nel browser): Impostazioni (admin) e Fattura. Le stampe continuano a passare dal ponte (ponte.ps1).
+- Restano sul sito (si aprono nel browser): Impostazioni (admin) e Fattura. Stampanti e cassa fiscale Epson sono
+  impostazioni LOCALI del programma: stampa comande (`comanda` nella risposta di invia/parcheggia), preconto e scontrino
+  simulato (`da_stampare`), foglietto di cambio tavolo (`avviso`) e parla direttamente con la Epson.
 - Librerie: `PySide6-Essentials` + `requests` (il pacchetto PySide6 completo non si installa col Python del Microsoft Store:
   percorsi troppo lunghi). Per provare in locale: in config.ini `url = http://localhost/`.
 - **Bilancia e vendita a peso** (24/10/2026, migrazione 012): `articoli.a_peso` (ogni prodotto è a prezzo fisso OPPURE a peso: scelta
@@ -222,7 +204,7 @@ Convenzioni: funzione `q($sql,$params)` per query preparate; `h()` per l'output 
   ("la bilancia ha risposto" / "nessuna risposta"), porte COM trovate (pyserial list_ports) + Simulatore + Nessuna, baud.
   "Salva e collega" scrive solo porta/baud in config.ini (commenti conservati) e riapre la bilancia senza riavviare
   (`FinestraPOS.imposta_bilancia`, barra della comanda ricreata).
-- Da fare: ponte di stampa dentro il programma Python (al posto di ponte.ps1), chiamate di rete in background (ora bloccano
+- Da fare: chiamate di rete in background (ora bloccano
   la finestra per il tempo della risposta), modifica delle impostazioni senza browser.
 
 ## Domande aperte

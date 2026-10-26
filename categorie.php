@@ -6,7 +6,8 @@
 require_once __DIR__ . '/includes/auth.php';
 $op = richiedi_admin();
 
-$destinazioni = ['cucina' => '🍕 Cucina', 'bar' => '🍹 Bar', 'nessuna' => '— Nessuna'];
+$destinazioni = ['cucina' => '🍳 Cucina', 'pizzeria' => '🍕 Pizzeria', 'bar' => '🍹 Bar', 'banco' => '🧾 Banco',
+                 'nessuna' => '— Nessuna'];
 
 $errore = '';
 $dati   = null;
@@ -155,7 +156,8 @@ unset($_SESSION['msg']);
           <label><input type="radio" name="destinazione" value="<?= $val ?>" <?= $dati['destinazione'] === $val ? 'checked' : '' ?>><span><?= $etichetta ?></span></label>
         <?php endforeach; ?>
       </div>
-      <div class="hint">Dove andrà stampata la comanda di questi prodotti (stampa: prossime tappe).</div>
+      <div class="hint">Tipo di stampante su cui il programma della cassa stampa la comanda di questi prodotti
+        (se non è scelta una stampante precisa nel programma). Nessuna = la comanda non si stampa.</div>
 
       <?php if ($dati['id']): ?>
         <a class="link-scheda" href="articoli.php?cat=<?= (int)$dati['id'] ?>">🍕 Vedi i prodotti di questa categoria ›</a>

@@ -1,15 +1,12 @@
 <?php
 // ============================================================
 //  note.php  -  Note rapide delle righe (solo admin)
-//  Pulsanti della finestra Note (INTEGRALE, BIANCA, CELIACO...). Una nota con stampante manda
-//  il prodotto SOLO su quella stampante (regola in stampante_nota(), includes/stampa.php).
+//  Pulsanti della finestra Note (INTEGRALE, BIANCA, CELIACO...).
+//  La stampante dedicata a una nota (es. CELIACO) si sceglie nel programma desktop della cassa.
 //  Centro: elenco · Destra: scheda
 // ============================================================
 require_once __DIR__ . '/includes/auth.php';
 $op = richiedi_admin();
-
-$stampanti = q('SELECT id, nome, tipo, attiva FROM stampanti ORDER BY attiva DESC, nome')->fetchAll();
-$st_ids = array_map('intval', array_column($stampanti, 'id'));
 
 $errore = '';
 $dati   = null;
@@ -29,11 +26,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $stampante = (int)($_POST['stampante_id'] ?? 0);
     $dati = [
         'id'           => $id,
         'testo'        => mb_strtoupper(trim($_POST['testo'] ?? '')),
-        'stampante_id' => in_array($stampante, $st_ids, true) ? $stampante : null,
         'ordine'       => (int)($_POST['ordine'] ?? 0),
         'attiva'       => isset($_POST['attiva']) ? 1 : 0,
     ];
@@ -47,11 +42,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!$errore) {
-        $valori = [$dati['testo'], $dati['stampante_id'], $dati['ordine'], $dati['attiva']];
+        $valori = [$dati['testo'], $dati['ordine'], $dati['attiva']];
         if ($id) {
-            q('UPDATE note_rapide SET testo = ?, stampante_id = ?, ordine = ?, attiva = ? WHERE id = ?', [...$valori, $id]);
+            q('UPDATE note_rapide SET testo = ?, ordine = ?, attiva = ? WHERE id = ?', [...$valori, $id]);
         } else {
-            q('INSERT INTO note_rapide (testo, stampante_id, ordine, attiva) VALUES (?, ?, ?, ?)', $valori);
+            q('INSERT INTO note_rapide (testo, ordine, attiva) VALUES (?, ?, ?)', $valori);
             $id = (int)db()->lastInsertId();
         }
         $_SESSION['msg'] = "Nota \"{$dati['testo']}\" salvata.";
@@ -63,14 +58,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ------------------------------------------------------------
 //  Dati per la pagina
 // ------------------------------------------------------------
-$note = q('SELECT n.*, s.nome AS stampante, s.attiva AS stampante_attiva
-           FROM note_rapide n LEFT JOIN stampanti s ON s.id = n.stampante_id
-           ORDER BY n.attiva DESC, n.ordine, n.id')->fetchAll();
+$note = q('SELECT * FROM note_rapide ORDER BY attiva DESC, ordine, id')->fetchAll();
 
 if (!$dati) {
     $id_sel = (int)($_GET['id'] ?? 0);
     $dati = ($id_sel ? q('SELECT * FROM note_rapide WHERE id = ?', [$id_sel])->fetch() : null)
-         ?: ['id' => 0, 'testo' => '', 'stampante_id' => null, 'ordine' => count($note) + 1, 'attiva' => 1];
+         ?: ['id' => 0, 'testo' => '', 'ordine' => count($note) + 1, 'attiva' => 1];
 }
 
 $msg = $_SESSION['msg'] ?? '';
@@ -117,13 +110,6 @@ unset($_SESSION['msg']);
       <?php foreach ($note as $n): ?>
         <a class="ordine <?= $n['attiva'] ? '' : 'sospesa' ?> <?= $n['id'] == $dati['id'] ? 'sel' : '' ?>" href="note.php?id=<?= $n['id'] ?>">
           <span class="cliente"><?= h($n['testo']) ?></span>
-          <span class="dettagli">
-            <?php if ($n['stampante']): ?>
-              <b>🖨 Solo su <?= h($n['stampante']) ?></b><?= $n['stampante_attiva'] ? '' : ' (stampante spenta: stampa normale)' ?>
-            <?php else: ?>
-              Stampa normale
-            <?php endif; ?>
-          </span>
           <?php if (!$n['attiva']): ?><span class="stato vuota">Disattivata</span><?php endif; ?>
         </a>
       <?php endforeach; ?>
@@ -150,17 +136,8 @@ unset($_SESSION['msg']);
         </label>
       </div>
 
-      <label>Stampante
-        <select name="stampante_id">
-          <option value="0">Stampa normale</option>
-          <?php foreach ($stampanti as $s): ?>
-            <option value="<?= $s['id'] ?>" <?= (int)$dati['stampante_id'] === (int)$s['id'] ? 'selected' : '' ?>>
-              Solo su <?= h($s['nome']) ?> (<?= h($s['tipo']) ?>)<?= $s['attiva'] ? '' : ' — spenta' ?></option>
-          <?php endforeach; ?>
-        </select>
-      </label>
-      <div class="hint">Con una stampante, il prodotto con questa nota esce SOLO lì e non sulla sua stampante solita
-        (es. CELIACO su una stampante dedicata). Vale anche se la nota è scritta a mano sui tablet.</div>
+      <div class="hint">La stampante dedicata a una nota (es. CELIACO su una stampante a parte) si sceglie
+        nel programma della cassa.</div>
 
       <label class="check">
         <input type="checkbox" name="attiva" <?= $dati['attiva'] ? 'checked' : '' ?>> Attiva

@@ -3,9 +3,26 @@
 //  generali.php  -  Dati del locale (solo admin)
 //  Valori della tabella impostazioni: nome locale, numero cassa,
 //  prezzo del coperto, simbolo della valuta, ora di inizio della giornata di lavoro.
+//  Da qui si scarica anche "POS a tutto schermo.bat" (apre il sito in modalità chiosco su un PC).
 // ============================================================
 require_once __DIR__ . '/includes/auth.php';
 $op = richiedi_admin();
+
+// Download di "POS a tutto schermo.bat" con dentro l'indirizzo del sito.
+// Online sempre https, anche se la pagina è stata aperta con http; in rete locale si lascia com'è.
+if (($_GET['scarica'] ?? '') === 'schermo') {
+    $host   = $_SERVER['HTTP_HOST'];
+    $locale = preg_match('/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/', $host);
+    $https  = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    $url    = ($https || !$locale ? 'https' : 'http') . '://' . $host
+            . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\') . '/';
+
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="POS a tutto schermo.bat"');
+    header('Cache-Control: no-store');
+    exit(str_replace(["\r\n", "\n"], ["\n", "\r\n"],
+                     strtr(file_get_contents(__DIR__ . '/includes/schermo-modello.bat'), ['{{URL}}' => $url])));
+}
 
 $errore = '';
 $dati = [
@@ -88,6 +105,8 @@ unset($_SESSION['msg']);
     <div class="navcol">
       <a class="btn menu" href="sala.php"><span class="ico">🏠</span>Menu</a>
       <a class="btn" href="impostazioni.php"><span class="ico">⚙</span>Impostazioni</a>
+      <!-- Apre il POS a tutto schermo (chiosco) su un PC: il file va messo sul Desktop -->
+      <a class="btn" href="generali.php?scarica=schermo"><span class="ico">⬇</span>Tutto schermo</a>
     </div>
 
     <div class="install">

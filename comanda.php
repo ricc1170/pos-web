@@ -9,7 +9,6 @@
 //  comanda.php?conto=N   -> comanda Bar parcheggiata, riaperta da bar.php
 // ============================================================
 require_once __DIR__ . '/includes/auth.php';
-require_once __DIR__ . '/includes/documenti.php';
 richiedi_login();
 
 $op = operatore_loggato();
@@ -181,14 +180,12 @@ $valuta = impostazione('valuta', '€');
         </div>
       </div>
 
-      <!-- Documenti: preconto per tutti; scontrino e fattura (chiudono il conto) per cassa e admin -->
-      <div class="conto-cassa">
-        <button type="button" class="btn" data-az="proforma"><span class="ico">📄</span>Proforma</button>
-        <?php if (in_array($op['ruolo'], ['cassa', 'admin'], true)): ?>
-          <button type="button" class="btn verde" data-az="scontrino"><span class="ico">🧾</span>Scontrino</button>
+      <!-- Fattura (chiude il conto) per cassa e admin. Proforma e scontrino si fanno dal programma della cassa -->
+      <?php if (in_array($op['ruolo'], ['cassa', 'admin'], true)): ?>
+        <div class="conto-cassa">
           <button type="button" class="btn viola" data-az="fattura"><span class="ico">📑</span>Fattura</button>
-        <?php endif; ?>
-      </div>
+        </div>
+      <?php endif; ?>
 
       <div class="conto-piede <?= $bar ? 'quattro' : '' ?>">
         <a class="btn scuro" href="<?= h($indietro) ?>" id="btnSala"><span class="ico">🪑</span>Sala</a>
@@ -226,10 +223,10 @@ $valuta = impostazione('valuta', '€');
         <textarea name="note" id="noteConto" maxlength="255" rows="2"></textarea>
       </label>
 
-      <!-- Si sceglie col pulsante se mandare in stampa i prodotti non ancora inviati -->
+      <!-- Si sceglie col pulsante se inviare in cucina i prodotti non ancora inviati -->
       <div class="scheda-piede parcheggia-scelta">
-        <button type="submit" name="stampa" value="1" class="btn verde"><span class="ico">🖨</span>Parcheggia e stampa</button>
-        <button type="submit" name="stampa" value="0" class="btn arancio"><span class="ico">🅿</span>Parcheggia senza stampare</button>
+        <button type="submit" name="invia" value="1" class="btn verde"><span class="ico">🍕</span>Parcheggia e invia</button>
+        <button type="submit" name="invia" value="0" class="btn arancio"><span class="ico">🅿</span>Parcheggia senza inviare</button>
       </div>
       <div class="scheda-piede">
         <button type="button" class="btn scuro" id="chiudiParcheggio"><span class="ico">✕</span>Indietro</button>
@@ -257,26 +254,6 @@ $valuta = impostazione('valuta', '€');
     </div>
   </div>
   <?php endif; ?>
-
-  <!-- Finestra Scontrino: scelta del pagamento, poi attesa della conferma della cassa Epson -->
-  <div class="finestra-sfondo" id="scontrino" hidden>
-    <div class="finestra scheda scontrino-finestra">
-      <h2>Scontrino · <span id="scontrinoTotale"></span></h2>
-      <?php if (rt_simulata()): ?>
-        <div class="msg errore">SIMULAZIONE: verrà stampato un foglio NON fiscale (Impostazioni &gt; Fiscale)</div>
-      <?php endif; ?>
-      <div class="pagamenti" id="sceltaPagamento">
-        <?php foreach (q('SELECT * FROM forme_pagamento ORDER BY ordine, id')->fetchAll() as $p): ?>
-          <button type="button" class="btn grande" data-pagamento="<?= $p['id'] ?>">
-            <span class="ico"><?= ['1' => '💶', '2' => '💳'][$p['id']] ?? '🎫' ?></span><?= h($p['nome']) ?></button>
-        <?php endforeach; ?>
-      </div>
-      <div class="scontrino-stato" id="scontrinoStato" hidden></div>
-      <div class="scheda-piede">
-        <button type="button" class="btn scuro" id="scontrinoChiudi"><span class="ico">✕</span>Chiudi</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Finestra Varianti: per ogni ingrediente "−" (senza, gratis) e "+" (aggiunta, a pagamento) -->
   <div class="finestra-sfondo" id="varianti" hidden>

@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS categorie (
   nome         VARCHAR(50)  NOT NULL,
   colore       VARCHAR(7)   DEFAULT '#2b6cb0',
   ordine       INT          NOT NULL DEFAULT 0,
-  destinazione ENUM('cucina','bar','nessuna') NOT NULL DEFAULT 'cucina'
+  destinazione ENUM('cucina','pizzeria','bar','banco','nessuna') NOT NULL DEFAULT 'cucina'   -- tipo di stampante nel programma
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- STAMPANTI di rete
@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS conti (
   tipo          ENUM('tavolo','asporto') NOT NULL DEFAULT 'tavolo',
   tavolo_id     INT           NULL,
   operatore_id  INT           NULL,
+  posto         TINYINT       NOT NULL DEFAULT 1,   -- Bar: cliente al banco (1, 2 o 3) dello stesso operatore
   coperti       INT           NOT NULL DEFAULT 0,
   orario_ritiro DATETIME      NULL,
   nome_cliente  VARCHAR(60)   NULL,
@@ -283,10 +284,10 @@ INSERT INTO tavoli (sala_id,nome,posti,pos_x,pos_y,larghezza,altezza,forma) VALU
   (1,'9',2, 940,760,80,90,'rettangolo');
 
 INSERT INTO categorie (nome,colore,ordine,destinazione) VALUES
-  ('PIZZE','#d35400',1,'cucina'),
-  ('PIZZE SPEC','#c0392b',2,'cucina'),
-  ('CALZONI','#7f8c8d',3,'cucina'),
-  ('FOCACCE','#e67e22',4,'cucina'),
+  ('PIZZE','#d35400',1,'pizzeria'),
+  ('PIZZE SPEC','#c0392b',2,'pizzeria'),
+  ('CALZONI','#7f8c8d',3,'pizzeria'),
+  ('FOCACCE','#e67e22',4,'pizzeria'),
   ('ANTIPASTI','#e74c3c',5,'cucina'),
   ('INSALATE','#27ae60',6,'cucina'),
   ('BEVANDE','#2980b9',7,'bar'),
@@ -324,7 +325,8 @@ INSERT IGNORE INTO migrazioni (nome) VALUES
   ('001_asporto.sql'), ('002_note_conto.sql'), ('003_tavoli_attivi.sql'), ('004_login_tentativi.sql'),
   ('005_stampanti.sql'), ('006_coda_stampa.sql'), ('007_stampante_articolo.sql'),
   ('008_varianti.sql'), ('009_stampanti_seriali.sql'),
-  ('010_documenti.sql'), ('011_charset_utf8mb4.sql'), ('012_vendita_a_peso.sql'), ('013_note_rapide.sql');
+  ('010_documenti.sql'), ('011_charset_utf8mb4.sql'), ('012_vendita_a_peso.sql'), ('013_note_rapide.sql'),
+  ('014_posto_banco.sql'), ('015_destinazioni_stampanti.sql');
 
 INSERT INTO note_rapide (testo, ordine) VALUES
   ('INTEGRALE', 1), ('BIANCA', 2), ('ROSSA', 3), ('BEN COTTA', 4), ('CELIACO', 5);

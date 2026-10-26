@@ -9,15 +9,15 @@
 //
 //    POST {azione: "login", pin}            -> { operatore, impostazioni }
 //    POST {azione: "logout"}
-//    GET  ?azione=sala                      -> { sale, tavoli, parcheggiate, avviso_ponte }
+//    GET  ?azione=sala                      -> { sale, tavoli, parcheggiate }
 //    GET  ?azione=info_sala&sala=N          -> { tavoli, locale }
 //    GET  ?azione=menu                      -> { categorie, articoli, varianti, pagamenti, operatori, ... }
 //    GET  ?azione=parcheggi                 -> { comande }
-//    POST {azione: "cambio", da, a, unisci} -> { esito: "ok"|"serve_unione", testo }
+//    POST {azione: "cambio", da, a, unisci} -> { esito: "ok"|"serve_unione", testo, avviso }
+//
+//  Il sito non stampa: stampanti, smistamento dei prodotti e cassa fiscale sono configurati nel programma.
 // ============================================================
 require_once __DIR__ . '/../includes/auth.php';
-require_once __DIR__ . '/../includes/stampa.php';
-require_once __DIR__ . '/../includes/documenti.php';
 require_once __DIR__ . '/../includes/cambio_tavolo.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -96,7 +96,6 @@ if ($azione === 'sala') {
         'tavoli'       => $tavoli,
         'parcheggiate' => (int)q('SELECT COUNT(*) FROM conti
                                   WHERE tipo = "asporto" AND stato = "aperto" AND orario_ritiro IS NOT NULL')->fetchColumn(),
-        'avviso_ponte' => serve_ponte() && q('SELECT 1 FROM stampanti WHERE attiva = 1 LIMIT 1')->fetch() && !ponte_collegato(),
     ]);
 }
 
@@ -138,7 +137,8 @@ if ($azione === 'info_sala') {
 //  Menu: categorie, prodotti, varianti, pagamenti, operatori del banco
 // ------------------------------------------------------------
 if ($azione === 'menu') {
-    $categorie = q('SELECT id, nome, colore FROM categorie ORDER BY ordine, id')->fetchAll();
+    // destinazione (cucina / pizzeria / bar / banco / nessuna): stampante predefinita della categoria nel programma
+    $categorie = q('SELECT id, nome, colore, destinazione FROM categorie ORDER BY ordine, id')->fetchAll();
     foreach ($categorie as &$c) $c['id'] = (int)$c['id'];
     unset($c);
 
@@ -168,10 +168,8 @@ if ($azione === 'menu') {
     foreach ($operatori as &$o) $o['id'] = (int)$o['id'];
     unset($o);
 
-    // Pulsanti della finestra Note (la stampante dedicata la decide il sito al momento della stampa)
-    $note_rapide = q('SELECT n.testo, s.nome AS stampante FROM note_rapide n
-                      LEFT JOIN stampanti s ON s.id = n.stampante_id AND s.attiva = 1
-                      WHERE n.attiva = 1 ORDER BY n.ordine, n.id')->fetchAll();
+    // Pulsanti della finestra Note (la stampante dedicata a una nota si sceglie nel programma)
+    $note_rapide = q('SELECT testo FROM note_rapide WHERE attiva = 1 ORDER BY ordine, id')->fetchAll();
 
     rispondi([
         'categorie'  => $categorie,
@@ -180,8 +178,6 @@ if ($azione === 'menu') {
         'note_rapide' => $note_rapide,
         'pagamenti'  => $pagamenti,
         'operatori'  => $operatori,
-        'rt_simulata' => rt_simulata(),
-        'rt_modo'     => rt_modo(),       // "epson" + [cassa] ip in config.ini = scontrino diretto dal programma
     ]);
 }
 
@@ -221,8 +217,8 @@ if ($azione === 'parcheggi') {
 // ------------------------------------------------------------
 if ($azione === 'cambio' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
-        [$esito, $testo] = cambia_tavolo((int)($in['da'] ?? 0), (int)($in['a'] ?? 0), !empty($in['unisci']));
-        rispondi(['esito' => $esito, 'testo' => $testo]);
+        [$esito, $testo, $avviso] = cambia_tavolo((int)($in['da'] ?? 0), (int)($in['a'] ?? 0), !empty($in['unisci']));
+        rispondi(['esito' => $esito, 'testo' => $testo, 'avviso' => $avviso]);
     } catch (ErroreCambio $e) {
         rispondi(['errore' => $e->getMessage()], 400);
     } catch (Throwable $e) {

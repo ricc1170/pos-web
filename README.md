@@ -30,7 +30,7 @@ Dagli altri dispositivi apri `http://192.168.1.10/pos/` nel browser.
 - [x] **Tappa 1** — Login operatore + mappa tavoli (sala.php)
 - [x] **Tappa 2** — Presa comanda: categorie, prodotti, conto (comanda.php + api/conto.php)
 - [ ] **Tappa 3** — Cassa: pagamento, chiusura conto
-- [ ] **Tappa 4** — Stampa comanda cucina / scontrino (ESC/POS di rete)
+- [ ] **Tappa 4** — Stampa comanda / scontrino: spostata nel programma desktop della cassa (il sito non stampa)
 
 ## Struttura file
 ```
@@ -43,7 +43,6 @@ pos/
 ├── impostazioni.php      pagina unica delle impostazioni (solo admin)
 ├── operatori.php         gestione operatori e PIN
 ├── categorie.php         gestione categorie
-├── stampanti.php         configurazione stampanti di rete + prova di stampa
 ├── generali.php          dati del locale (nome, cassa, coperto, valuta)
 ├── articoli.php          gestione prodotti (solo admin)
 ├── bar.php               elenco comande Bar parcheggiate (asporto)
